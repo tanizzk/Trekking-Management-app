@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrekManager - Trekking Management Application</title>
+
+<!-- Bootstrap 5 -->
+<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+  body { background-color: #f5f7f6; }
+  .navbar-brand { font-weight: 700; letter-spacing: .5px; }
+
+  /* --- Card hover dynamics --- */
+  .trek-card {
+    transition: transform .2s ease, box-shadow .2s ease;
+    will-change: transform;
+  }
+  .trek-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 1rem 1.75rem rgba(0,0,0,.12);
+  }
+  .stat-card {
+    border-left: 4px solid #198754;
+    transition: transform .18s ease, box-shadow .18s ease, border-left-color .18s ease;
+  }
+  .stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 .5rem 1.25rem rgba(0,0,0,.08);
+    border-left-color: #146c43;
+  }
+
+  /* --- Button micro-interactions --- */
+  .btn {
+    transition: transform .12s ease, box-shadow .12s ease, background-color .15s ease, filter .15s ease;
+  }
+  .btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+  }
+  .btn:active:not(:disabled) {
+    transform: translateY(0);
+    filter: brightness(.97);
+  }
+  .btn:disabled { transform: none; }
+
+  /* --- Nav pill / tab transitions --- */
+  .nav-pills .nav-link {
+    transition: background-color .15s ease, color .15s ease, transform .12s ease;
+  }
+  .nav-pills .nav-link:hover:not(.active) {
+    background-color: rgba(25,135,84,.1);
+    transform: translateY(-1px);
+  }
+
+  /* --- Table row hover --- */
+  .table-hover > tbody > tr {
+    transition: background-color .12s ease;
+  }
+
+  /* --- Links --- */
+  a { transition: color .15s ease; }
+
+  /* --- Progress bar fill animation --- */
+  .progress-bar { transition: width .4s ease; }
+
+  /* --- Modal fade-in --- */
+  .modal.d-block .modal-dialog {
+    animation: modalPop .18s ease;
+  }
+  @keyframes modalPop {
+    from { opacity: 0; transform: translateY(-12px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* --- Alerts slide in --- */
+  .alert { animation: alertSlide .2s ease; }
+  @keyframes alertSlide {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .cursor-pointer { cursor: pointer; }
+  .brand-icon { font-size: 1.4rem; }
+  #app { min-height: 100vh; display: flex; flex-direction: column; }
+  main { flex: 1; }
+
+  /* --- Fluid layout polish across breakpoints --- */
+  @media (max-width: 767.98px) {
+    .navbar .d-flex.align-items-center.ms-auto { flex-wrap: wrap; justify-content: flex-end; row-gap: .5rem; }
+    .nav-pills { gap: .35rem !important; }
+    .nav-pills .nav-link { padding: .35rem .65rem; font-size: .875rem; }
+    h3 { font-size: 1.35rem; }
+  }
+  @media (max-width: 575.98px) {
+    main.container { padding-left: .75rem; padding-right: .75rem; }
+    .card-body { padding: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===================== NAVBAR ===================== -->
+  <nav class="navbar navbar-expand-lg navbar-dark bg-success sticky-top shadow-sm">
+    <div class="container">
+      <a class="navbar-brand cursor-pointer" @click="goTo('browse')">
+        <span class="brand-icon">⛰️</span> TrekManager
+      </a>
+      <div class="d-flex align-items-center ms-auto gap-2">
+        <template v-if="!isLoggedIn">
+          <button class="btn btn-outline-light btn-sm" @click="goTo('browse')">Browse Treks</button>
+          <button class="btn btn-outline-light btn-sm" @click="goTo('login')">Login</button>
+          <button class="btn btn-light btn-sm" @click="goTo('register')">Register</button>
+        </template>
+        <template v-else>
+          <button class="btn btn-outline-light btn-sm" @click="goTo('browse')">Browse Treks</button>
+          <button class="btn btn-outline-light btn-sm" @click="goTo('dashboard')">Dashboard</button>
+          <span class="text-white small d-none d-md-inline">
+            {{ currentUser.name }}
+            <span class="badge text-bg-light text-dark ms-1">{{ role }}</span>
+          </span>
+          <button class="btn btn-light btn-sm" @click="logout">Logout</button>
+        </template>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container py-4">
+
+    <!-- ===================== FLASH MESSAGES ===================== -->
+    <div v-if="errorMsg" class="alert alert-danger alert-dismissible fade show" role="alert">
+      {{ errorMsg }}
+      <button type="button" class="btn-close" @click="errorMsg = ''"></button>
+    </div>
+    <div v-if="successMsg" class="alert alert-success alert-dismissible fade show" role="alert">
+      {{ successMsg }}
+      <button type="button" class="btn-close" @click="successMsg = ''"></button>
+    </div>
+    <div v-if="loading" class="text-center my-2">
+      <div class="spinner-border spinner-border-sm text-success" role="status"></div>
+    </div>
+
+    <!-- ===================== BROWSE TREKS (public) ===================== -->
+    <section v-if="view === 'browse'">
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Open Treks</h3>
+      </div>
+
+      <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <input v-model="searchQuery" @keyup.enter="fetchTreks" type="text" class="form-control"
+                     placeholder="Search by title...">
+            </div>
+            <div class="col-md-3">
+              <input v-model="locationFilter" @keyup.enter="fetchTreks" type="text" class="form-control"
+                     placeholder="Location...">
+            </div>
+            <div class="col-md-3">
+              <select v-model="difficultyFilter" class="form-select">
+                <option value="">All difficulties</option>
+                <option value="easy">Easy</option>
+                <option value="moderate">Moderate</option>
+                <option value="hard">Hard</option>
+              </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+              <button class="btn btn-success flex-fill" @click="fetchTreks">Search</button>
+              <button class="btn btn-outline-secondary" @click="resetFilters" title="Reset">✕</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="treks.length === 0" class="alert alert-info">No open treks match your search right now.</div>
+
+      <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        <div class="col" v-for="trek in treks" :key="trek.id">
+          <div class="card h-100 shadow-sm trek-card">
+            <div class="card-body d-flex flex-column">
+              <div class="d-flex justify-content-between align-items-start">
+                <h5 class="card-title mb-1">{{ trek.title }}</h5>
+                <span class="badge text-bg-light border">{{ trek.difficulty }}</span>
+              </div>
+              <p class="text-muted small mb-2">📍 {{ trek.location }}</p>
+              <p class="card-text small flex-grow-1">{{ trek.description || 'No description provided.' }}</p>
+              <p class="small mb-1"><strong>Dates:</strong> {{ formatDate(trek.start_date) }} → {{ formatDate(trek.end_date) }}</p>
+              <p class="small mb-2"><strong>Price:</strong> {{ formatMoney(trek.price) }} / person</p>
+              <div class="mb-2">
+                <div class="d-flex justify-content-between small text-muted">
+                  <span>{{ trek.available_slots }} of {{ trek.total_slots }} slots left</span>
+                </div>
+                <div class="progress" style="height: 6px;">
+                  <div class="progress-bar bg-success" :style="{ width: (100 * trek.booked_slots / trek.total_slots) + '%' }"></div>
+                </div>
+              </div>
+              <button class="btn btn-success mt-auto" :disabled="trek.available_slots === 0"
+                      @click="openBookingModal(trek)">
+                {{ trek.available_slots === 0 ? 'Fully Booked' : 'Book Now' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== LOGIN ===================== -->
+    <section v-if="view === 'login'" class="d-flex justify-content-center">
+      <div class="card shadow-sm" style="max-width: 420px; width:100%;">
+        <div class="card-body p-4">
+          <h4 class="mb-3 text-center">Login</h4>
+          <form @submit.prevent="submitLogin">
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input v-model="loginForm.email" type="email" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Password</label>
+              <input v-model="loginForm.password" type="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100">Login</button>
+          </form>
+          <p class="text-center small text-muted mt-3 mb-0">
+            New trekker? <a href="#" @click.prevent="goTo('register')">Create an account</a>
+          </p>
+          <p class="text-center small text-muted mt-2 mb-0">
+            Admin/Staff accounts are provisioned by the administrator.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== REGISTER (Trekker only) ===================== -->
+    <section v-if="view === 'register'" class="d-flex justify-content-center">
+      <div class="card shadow-sm" style="max-width: 460px; width:100%;">
+        <div class="card-body p-4">
+          <h4 class="mb-3 text-center">Create a Trekker Account</h4>
+          <form @submit.prevent="submitRegister">
+            <div class="mb-3">
+              <label class="form-label">Full Name</label>
+              <input v-model="registerForm.name" type="text" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input v-model="registerForm.email" type="email" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Phone (optional)</label>
+              <input v-model="registerForm.phone" type="text" class="form-control">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Password</label>
+              <input v-model="registerForm.password" type="password" class="form-control" required minlength="6">
+              <div class="form-text">At least 6 characters.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Confirm Password</label>
+              <input v-model="registerForm.confirmPassword" type="password" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-success w-100">Register</button>
+          </form>
+          <p class="text-center small text-muted mt-3 mb-0">
+            Already have an account? <a href="#" @click.prevent="goTo('login')">Login</a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== DASHBOARD (role-based) ===================== -->
+    <section v-if="view === 'dashboard' && isLoggedIn">
+
+      <!-- ---------- ADMIN ---------- -->
+      <div v-if="role === 'admin'">
+        <h3 class="mb-3">Admin Dashboard</h3>
+        <ul class="nav nav-pills mb-4 flex-wrap gap-2">
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='overview'}" @click="switchDashboardTab('overview')">Overview</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='pending-approvals'}" @click="switchDashboardTab('pending-approvals')">Pending Approvals</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='manage-users'}" @click="switchDashboardTab('manage-users')">Manage Users</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='add-staff'}" @click="switchDashboardTab('add-staff')">Add Staff</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='all-treks'}" @click="switchDashboardTab('all-treks')">All Treks</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='reports'}" @click="switchDashboardTab('reports')">Reports</button></li>
+        </ul>
+
+        <!-- Overview -->
+        <div v-if="dashboardTab === 'overview' && dashboardStats">
+          <div class="row g-3">
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Total Trekkers</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.total_trekkers }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Total Staff</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.total_staff }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Open Treks</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.open_treks }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Pending Approvals</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.pending_treks }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Completed Treks</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.completed_treks }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Total Bookings</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.total_bookings }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Blacklisted Users</div>
+                <div class="fs-3 fw-bold">{{ dashboardStats.blacklisted_users }}</div>
+              </div></div>
+            </div>
+            <div class="col-md-3 col-6">
+              <div class="card stat-card shadow-sm"><div class="card-body">
+                <div class="text-muted small">Est. Revenue</div>
+                <div class="fs-3 fw-bold">{{ formatMoney(dashboardStats.estimated_revenue) }}</div>
+              </div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pending Approvals -->
+        <div v-if="dashboardTab === 'pending-approvals'">
+          <div v-if="pendingTreks.length === 0" class="alert alert-info">No treks awaiting approval.</div>
+          <div class="table-responsive" v-else>
+            <table class="table table-hover bg-white align-middle">
+              <thead><tr><th>Title</th><th>Location</th><th>Dates</th><th>Slots</th><th>Price</th><th>Submitted By</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="t in pendingTreks" :key="t.id">
+                  <td>{{ t.title }}</td>
+                  <td>{{ t.location }}</td>
+                  <td>{{ formatDate(t.start_date) }} → {{ formatDate(t.end_date) }}</td>
+                  <td>{{ t.total_slots }}</td>
+                  <td>{{ formatMoney(t.price) }}</td>
+                  <td>{{ t.creator_name }}</td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-success me-1" @click="approveTrek(t.id)">Approve</button>
+                    <button class="btn btn-sm btn-outline-danger" @click="rejectTrek(t.id)">Reject</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Manage Users -->
+        <div v-if="dashboardTab === 'manage-users'">
+          <div class="mb-3 d-flex gap-2">
+            <select v-model="userRoleFilter" @change="fetchAllUsers" class="form-select" style="max-width:220px;">
+              <option value="">All roles</option>
+              <option value="trekker">Trekkers</option>
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover bg-white align-middle">
+              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="u in allUsers" :key="u.id">
+                  <td>{{ u.name }}</td>
+                  <td>{{ u.email }}</td>
+                  <td><span class="badge text-bg-light border">{{ u.role }}</span></td>
+                  <td><span class="badge" :class="statusBadgeClass(u.status)">{{ u.status }}</span></td>
+                  <td>{{ formatDate(u.created_at) }}</td>
+                  <td class="text-end">
+                    <button v-if="u.status === 'active' && u.role !== 'admin'" class="btn btn-sm btn-outline-danger"
+                            @click="blacklistUser(u.id)">Blacklist</button>
+                    <button v-if="u.status === 'blacklisted'" class="btn btn-sm btn-outline-success"
+                            @click="activateUser(u.id)">Reactivate</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Add Staff -->
+        <div v-if="dashboardTab === 'add-staff'">
+          <div class="card shadow-sm" style="max-width:520px;">
+            <div class="card-body">
+              <h5 class="mb-3">Create Staff Account</h5>
+              <form @submit.prevent="submitStaffForm">
+                <div class="mb-2"><label class="form-label">Name</label>
+                  <input v-model="staffForm.name" class="form-control" required></div>
+                <div class="mb-2"><label class="form-label">Email</label>
+                  <input v-model="staffForm.email" type="email" class="form-control" required></div>
+                <div class="mb-2"><label class="form-label">Phone</label>
+                  <input v-model="staffForm.phone" class="form-control"></div>
+                <div class="mb-2"><label class="form-label">Password</label>
+                  <input v-model="staffForm.password" type="password" class="form-control" required minlength="6"></div>
+                <div class="mb-2"><label class="form-label">Designation</label>
+                  <input v-model="staffForm.designation" class="form-control"></div>
+                <div class="mb-3"><label class="form-label">Assigned Region</label>
+                  <input v-model="staffForm.assigned_region" class="form-control"></div>
+                <button type="submit" class="btn btn-success w-100">Create Staff Account</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- All Treks -->
+        <div v-if="dashboardTab === 'all-treks'">
+          <div class="mb-3 d-flex gap-2">
+            <select v-model="adminTrekStatusFilter" @change="fetchAllTreksAdmin" class="form-select" style="max-width:220px;">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+              <option value="completed">Completed</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-hover bg-white align-middle">
+              <thead><tr><th>Title</th><th>Location</th><th>Status</th><th>Slots</th><th>Created By</th></tr></thead>
+              <tbody>
+                <tr v-for="t in allTreksAdmin" :key="t.id">
+                  <td>{{ t.title }}</td>
+                  <td>{{ t.location }}</td>
+                  <td><span class="badge" :class="statusBadgeClass(t.status)">{{ t.status }}</span></td>
+                  <td>{{ t.booked_slots }} / {{ t.total_slots }}</td>
+                  <td>{{ t.creator_name }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Reports (Celery background jobs) -->
+        <div v-if="dashboardTab === 'reports'">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="card shadow-sm h-100">
+                <div class="card-body">
+                  <h5>Monthly Activity Report</h5>
+                  <p class="text-muted small">Runs automatically on the 1st of every month </p> <!-- via celery beat -->
+                  <button class="btn btn-success" :disabled="reportPolling" @click="triggerMonthlyReport">
+                    {{ reportPolling ? 'Generating...' : 'Generate Now' }}
+                  </button>
+                  <div v-if="reportResult" class="mt-3 small border-top pt-2">
+                    <p class="mb-1"><strong>Generated:</strong> {{ formatDate(reportResult.generated_at) }}</p>
+                    <p class="mb-1"><strong>New users:</strong> {{ reportResult.summary.new_users }}</p>
+                    <p class="mb-1"><strong>New bookings:</strong> {{ reportResult.summary.new_bookings }}</p>
+                    <p class="mb-1"><strong>Revenue:</strong> {{ formatMoney(reportResult.summary.estimated_revenue) }}</p>
+                    <p class="mb-0 text-muted">Saved as backend/reports/{{ reportResult.report_file }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card shadow-sm h-100">
+                <div class="card-body">
+                  <h5>Daily Trek Reminders</h5>
+                  <p class="text-muted small">Runs automatically every day </p>
+                  <button class="btn btn-success" :disabled="reminderPolling" @click="triggerReminders">
+                    {{ reminderPolling ? 'Sending...' : 'Send Now' }}
+                  </button>
+                  <div v-if="reminderResult" class="mt-3 small border-top pt-2">
+                    <p class="mb-0"><strong>Notifications sent:</strong> {{ reminderResult.notifications_sent }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- STAFF ---------- -->
+      <div v-if="role === 'staff'">
+        <h3 class="mb-3">Staff Dashboard</h3>
+        <ul class="nav nav-pills mb-4 flex-wrap gap-2">
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='my-treks'}" @click="switchDashboardTab('my-treks')">My Treks</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='create-trek'}" @click="switchDashboardTab('create-trek')">{{ editingTrekId ? 'Edit Trek' : 'Create Trek' }}</button></li>
+        </ul>
+
+        <!-- My Treks -->
+        <div v-if="dashboardTab === 'my-treks'">
+          <div v-if="myTreks.length === 0" class="alert alert-info">You haven't submitted any treks yet.</div>
+          <div class="table-responsive" v-else>
+            <table class="table table-hover bg-white align-middle">
+              <thead><tr><th>Title</th><th>Dates</th><th>Slots</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="t in myTreks" :key="t.id">
+                  <td>{{ t.title }}</td>
+                  <td>{{ formatDate(t.start_date) }} → {{ formatDate(t.end_date) }}</td>
+                  <td>{{ t.booked_slots }} / {{ t.total_slots }}</td>
+                  <td><span class="badge" :class="statusBadgeClass(t.status)">{{ t.status }}</span></td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <button class="btn btn-outline-secondary" v-if="['pending','approved'].includes(t.status)" @click="startEditTrek(t)">Edit</button>
+                      <button class="btn btn-outline-success" v-if="t.status === 'approved'" @click="openTrekForBooking(t.id)">Open</button>
+                      <button class="btn btn-outline-warning" v-if="t.status === 'open'" @click="closeTrekBooking(t.id)">Close</button>
+                      <button class="btn btn-outline-dark" v-if="['open','closed'].includes(t.status)" @click="markTrekComplete(t.id)">Complete</button>
+                      <button class="btn btn-outline-primary" @click="viewTrekBookings(t)">Bookings</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Create / Edit Trek -->
+        <div v-if="dashboardTab === 'create-trek'">
+          <div class="card shadow-sm" style="max-width:640px;">
+            <div class="card-body">
+              <h5 class="mb-3">{{ editingTrekId ? 'Edit Trek' : 'Submit a New Trek' }}</h5>
+              <form @submit.prevent="submitTrekForm">
+                <div class="mb-2"><label class="form-label">Title</label>
+                  <input v-model="trekForm.title" class="form-control" required></div>
+                <div class="mb-2"><label class="form-label">Description</label>
+                  <textarea v-model="trekForm.description" class="form-control" rows="3"></textarea></div>
+                <div class="row">
+                  <div class="col-md-8 mb-2"><label class="form-label">Location</label>
+                    <input v-model="trekForm.location" class="form-control" required></div>
+                  <div class="col-md-4 mb-2"><label class="form-label">Difficulty</label>
+                    <select v-model="trekForm.difficulty" class="form-select">
+                      <option value="easy">Easy</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="hard">Hard</option>
+                    </select></div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-2"><label class="form-label">Start Date</label>
+                    <input v-model="trekForm.start_date" type="date" class="form-control" required></div>
+                  <div class="col-md-6 mb-2"><label class="form-label">End Date</label>
+                    <input v-model="trekForm.end_date" type="date" class="form-control" required></div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3"><label class="form-label">Total Slots</label>
+                    <input v-model.number="trekForm.total_slots" type="number" min="1" class="form-control" required></div>
+                  <div class="col-md-6 mb-3"><label class="form-label">Price per Person ($)</label>
+                    <input v-model.number="trekForm.price" type="number" min="0" step="0.01" class="form-control" required></div>
+                </div>
+                <div class="d-flex gap-2">
+                  <button type="submit" class="btn btn-success flex-fill">{{ editingTrekId ? 'Save Changes' : 'Submit for Approval' }}</button>
+                  <button v-if="editingTrekId" type="button" class="btn btn-outline-secondary" @click="cancelEditTrek">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ---------- TREKKER ---------- -->
+      <div v-if="role === 'trekker'">
+        <h3 class="mb-3">My Dashboard</h3>
+        <ul class="nav nav-pills mb-4 flex-wrap gap-2">
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='my-bookings'}" @click="switchDashboardTab('my-bookings')">My Bookings</button></li>
+          <li class="nav-item"><button class="nav-link" :class="{active: dashboardTab==='export'}" @click="switchDashboardTab('export')">Export History</button></li>
+        </ul>
+
+        <!-- My Bookings -->
+        <div v-if="dashboardTab === 'my-bookings'">
+          <div v-if="myBookings.length === 0" class="alert alert-info">You have no bookings yet. Go browse some treks!</div>
+          <div class="table-responsive" v-else>
+            <table class="table table-hover bg-white align-middle">
+              <thead><tr><th>Trek</th><th>Slots</th><th>Status</th><th>Booked On</th><th></th></tr></thead>
+              <tbody>
+                <tr v-for="b in myBookings" :key="b.id">
+                  <td>{{ b.trek_title }}</td>
+                  <td>{{ b.num_slots }}</td>
+                  <td><span class="badge" :class="statusBadgeClass(b.status)">{{ b.status }}</span></td>
+                  <td>{{ formatDate(b.booking_date) }}</td>
+                  <td class="text-end">
+                    <button v-if="b.status === 'confirmed'" class="btn btn-sm btn-outline-danger" @click="cancelMyBooking(b.id)">Cancel</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Export History (async Celery task) -->
+        <div v-if="dashboardTab === 'export'">
+          <div class="card shadow-sm" style="max-width:520px;">
+            <div class="card-body">
+              <h5>Export Booking History</h5>
+              <p class="text-muted small">Generates a CSV of your full booking history in the background.</p>
+              <button class="btn btn-success" :disabled="exportPolling" @click="startExport">
+                {{ exportPolling ? 'Preparing export...' : 'Start Export' }}
+              </button>
+              <div v-if="exportResult" class="mt-3 border-top pt-3">
+                <p class="small mb-2">{{ exportResult.row_count }} booking(s) ready to download.</p>
+                <button class="btn btn-outline-success btn-sm" @click="downloadExportCsv">⬇ Download CSV</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ===================== BOOKING MODAL ===================== -->
+    <div v-if="bookingModalTrek" class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Book: {{ bookingModalTrek.title }}</h5>
+            <button type="button" class="btn-close" @click="closeBookingModal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted mb-1">📍 {{ bookingModalTrek.location }}</p>
+            <p class="small mb-3">{{ formatDate(bookingModalTrek.start_date) }} → {{ formatDate(bookingModalTrek.end_date) }}</p>
+            <label class="form-label">Number of slots (max {{ bookingModalTrek.available_slots }})</label>
+            <input type="number" min="1" :max="bookingModalTrek.available_slots" v-model.number="bookingSlots" class="form-control mb-2">
+            <p class="fw-bold mb-0">Total: {{ formatMoney(bookingModalTrek.price * bookingSlots) }}</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" @click="closeBookingModal">Cancel</button>
+            <button class="btn btn-success" @click="confirmBooking">Confirm Booking</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== TREK BOOKINGS ROSTER MODAL (staff/admin) ===================== -->
+    <div v-if="bookingsModalTrek" class="modal d-block" tabindex="-1" style="background: rgba(0,0,0,.5);">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Bookings for: {{ bookingsModalTrek.title }}</h5>
+            <button type="button" class="btn-close" @click="closeBookingsModal"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="bookingsModalList.length === 0" class="alert alert-info mb-0">No bookings yet for this trek.</div>
+            <table v-else class="table table-sm">
+              <thead><tr><th>Trekker</th><th>Email</th><th>Slots</th><th>Status</th><th>Booked On</th></tr></thead>
+              <tbody>
+                <tr v-for="b in bookingsModalList" :key="b.id">
+                  <td>{{ b.trekker_name }}</td>
+                  <td>{{ b.trekker_email }}</td>
+                  <td>{{ b.num_slots }}</td>
+                  <td><span class="badge" :class="statusBadgeClass(b.status)">{{ b.status }}</span></td>
+                  <td>{{ formatDate(b.booking_date) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" @click="closeBookingsModal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="bg-white border-top py-3 mt-4">
+    <div class="container text-center text-muted small">
+
+    </div>
+  </footer>
+
+</div>
+
+<!-- Vue 3 (CDN) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.31/vue.global.prod.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
